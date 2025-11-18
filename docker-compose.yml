@@ -1,0 +1,275 @@
+services:
+  postgres17:
+    image: pgduckdb/pgduckdb:17-main
+    container_name: benchmark_postgres17
+    shm_size: '1g'
+    environment:
+      POSTGRES_DB: benchmark_db
+      POSTGRES_USER: benchmark_user
+      POSTGRES_PASSWORD: benchmark_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres17_data:/var/lib/postgresql/data
+      - ./init-scripts-pg18:/docker-entrypoint-initdb.d
+    command: >
+      postgres
+      -c shared_preload_libraries='pg_duckdb'
+      -c max_connections=200
+      -c shared_buffers=2GB
+      -c effective_cache_size=6GB
+      -c maintenance_work_mem=512MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=32MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+      -c max_worker_processes=8
+      -c max_parallel_workers_per_gather=4
+      -c max_parallel_workers=8
+      -c jit=on
+      -c duckdb.force_execution=false
+    networks:
+      - benchmark_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U benchmark_user -d benchmark_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres18:
+    image: postgres:18-bookworm
+    container_name: benchmark_postgres18
+    environment:
+      POSTGRES_DB: benchmark_db
+      POSTGRES_USER: benchmark_user
+      POSTGRES_PASSWORD: benchmark_pass
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres18_data:/var/lib/postgresql
+      - ./init-scripts-pg18:/docker-entrypoint-initdb.d
+    command: >
+      postgres
+      -c max_connections=200
+      -c shared_buffers=2GB
+      -c effective_cache_size=6GB
+      -c maintenance_work_mem=512MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=32MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+      -c max_worker_processes=8
+      -c max_parallel_workers_per_gather=4
+      -c max_parallel_workers=8
+      -c jit=on
+    networks:
+      - benchmark_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U benchmark_user -d benchmark_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB 7
+  mongodb:
+    image: mongo:7
+    container_name: benchmark_mongodb
+    environment:
+      MONGO_INITDB_DATABASE: benchmark_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d
+    command: >
+      mongod
+      --wiredTigerCacheSizeGB 2
+      --wiredTigerCollectionBlockCompressor snappy
+    networks:
+      - benchmark_net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+
+  # MinIO for S3-compatible storage
+  minio:
+    image: minio/minio:latest
+    container_name: benchmark_minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - benchmark_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PgAdmin for database management
+  # pgadmin:
+  #   image: dpage/pgadmin4:latest
+  #   container_name: benchmark_pgadmin
+  #   environment:
+  #     PGADMIN_DEFAULT_EMAIL: admin@benchmark.local
+  #     PGADMIN_DEFAULT_PASSWORD: admin
+  #     PGADMIN_CONFIG_SERVER_MODE: 'False'
+  #   ports:
+  #     - "5050:80"
+  #   volumes:
+  #     - pgadmin_data:/var/lib/pgadmin
+  #   networks:
+  #     - benchmark_net
+  #   depends_on:
+  #     postgres17:
+  #       condition: service_healthy
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: benchmark_clickhouse
+    ports:
+      - "8123:8123"  # HTTP interface
+      - "9002:9000"  # Native client
+    environment:
+      CLICKHOUSE_DB: benchmark_db
+      CLICKHOUSE_USER: benchmark_user
+      CLICKHOUSE_PASSWORD: benchmark_pass
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse-init:/docker-entrypoint-initdb.d
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    networks:
+      - benchmark_net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL with Hydra columnar extension
+  # postgres-hydra:
+  #   image: ghcr.io/hydradatabase/hydra:16-5a258d26896de0f47b08658dc8fa914ad453eeab
+  #   container_name: benchmark_postgres_hydra
+  #   shm_size: '1g'
+  #   environment:
+  #     POSTGRES_DB: benchmark_db
+  #     POSTGRES_USER: benchmark_user
+  #     POSTGRES_PASSWORD: benchmark_pass
+  #   ports:
+  #     - "5434:5432"
+  #   volumes:
+  #     - postgres_hydra_data:/var/lib/postgresql/data
+  #     - ./init-scripts-pg18:/docker-entrypoint-initdb.d
+  #   command: >
+  #     postgres
+  #     -c shared_preload_libraries='columnar'
+  #     -c max_connections=200
+  #     -c shared_buffers=2GB
+  #     -c effective_cache_size=6GB
+  #     -c maintenance_work_mem=512MB
+  #     -c checkpoint_completion_target=0.9
+  #     -c wal_buffers=16MB
+  #     -c default_statistics_target=100
+  #     -c random_page_cost=1.1
+  #     -c effective_io_concurrency=200
+  #     -c work_mem=32MB
+  #     -c min_wal_size=1GB
+  #     -c max_wal_size=4GB
+  #     -c max_worker_processes=8
+  #     -c max_parallel_workers_per_gather=4
+  #     -c max_parallel_workers=8
+  #     -c jit=on
+  #   networks:
+  #     - benchmark_net
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U benchmark_user -d benchmark_db"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+  # # PostgreSQL with ParadeDB extension
+  # postgres-paradedb:
+  #   image: paradedb/paradedb
+  #   container_name: benchmark_postgres_paradedb
+  #   shm_size: '1g'
+  #   environment:
+  #     POSTGRES_DB: benchmark_db
+  #     POSTGRES_USER: benchmark_user
+  #     POSTGRES_PASSWORD: benchmark_pass
+  #   ports:
+  #     - "5435:5432"
+  #   volumes:
+  #     - postgres_paradedb_data:/var/lib/postgresql/data
+  #     - ./init-scripts-pg18:/docker-entrypoint-initdb.d
+  #   command: >
+  #     postgres
+  #     -c max_connections=200
+  #     -c shared_buffers=2GB
+  #     -c effective_cache_size=6GB
+  #     -c maintenance_work_mem=512MB
+  #     -c checkpoint_completion_target=0.9
+  #     -c wal_buffers=16MB
+  #     -c default_statistics_target=100
+  #     -c random_page_cost=1.1
+  #     -c effective_io_concurrency=200
+  #     -c work_mem=32MB
+  #     -c min_wal_size=1GB
+  #     -c max_wal_size=4GB
+  #     -c max_worker_processes=8
+  #     -c max_parallel_workers_per_gather=4
+  #     -c max_parallel_workers=8
+  #     -c jit=on
+  #   networks:
+  #     - benchmark_net
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U benchmark_user -d benchmark_db"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+volumes:
+  postgres18_data:
+    driver: local
+  postgres17_data:
+    driver: local
+  # postgres_hydra_data:
+  #   driver: local
+  # postgres_paradedb_data:
+  #   driver: local
+  mongodb_data:
+    driver: local
+  minio_data:
+    driver: local
+  # pgadmin_data:
+  #   driver: local
+  clickhouse_data:
+    driver: local
+
+networks:
+  benchmark_net:
+    driver: bridge
