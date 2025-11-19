@@ -41,16 +41,16 @@ mkdir -p results
 
 # Run with default dataset size (100,000 records)
 mkdir -p results/100000
-python main.py 2>&1 | tee results/query_benchmark_100000.log
+python -u main.py 2>&1 | tee results/query_benchmark_100000.log
 
 # Run with custom dataset size (1 million records)
 mkdir -p results/1000000
-python main.py --dataset-size 1000000 2>&1 | tee results/1000000/query_benchmark.log
+python -u main.py --dataset-size 1000000 2>&1 | tee results/1000000/query_benchmark.log
 
 
 # Run with custom dataset size (10 million records)
 mkdir -p results/10000000
-python main.py --dataset-size 10000000 2>&1 | tee results/10000000/query_benchmark.log
+python -u main.py --dataset-size 10000000 2>&1 | tee results/10000000/query_benchmark.log
 ```
 
 ### 4. Run Ingestion Benchmarks
@@ -60,11 +60,11 @@ After query benchmarks complete, run ingestion benchmarks:
 ```bash
 # Run with default settings
 mkdir -p results/100000
-python run_ingestion_benchmark.py --dataset-size 100000 --test-size 10000 2>&1 | tee results/100000/ingestion_benchmark.log
+python -u run_ingestion_benchmark.py --dataset-size 100000 --test-size 10000 2>&1 | tee results/100000/ingestion_benchmark.log
 
 # Customize parameters 1M bulk and 50 batches/sec for 100seconds on 10M dataset size
 mkdir -p results/10000000
-python run_ingestion_benchmark.py \
+python -u run_ingestion_benchmark.py \
   --dataset-size 1000000 \
   --test-size 1000000 \
   --batch-size 200 \
