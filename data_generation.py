@@ -36,12 +36,15 @@ class DataFileManager:
         if starting_order_id > 0:
             jsonl_path = self.data_dir / f"{count}_{prefix}_offset{starting_order_id}_nested.jsonl"
             flat_csv_path = self.data_dir / f"{count}_{prefix}_offset{starting_order_id}_flat.csv"
+            # For timestamp-based offsets, always generate fresh data (never skip)
+            skip_if_exists = False
         else:
             jsonl_path = self.data_dir / f"{count}_{prefix}_nested.jsonl"
             flat_csv_path = self.data_dir / f"{count}_{prefix}_flat.csv"
+            skip_if_exists = True
 
-        # Check if data already exists
-        if jsonl_path.exists():
+        # Check if data already exists (only skip for non-offset data)
+        if skip_if_exists and jsonl_path.exists():
             print(f"\nData for {count:,} records exist, skipping generation...")
             return {
                 "nested_jsonl": str(jsonl_path),

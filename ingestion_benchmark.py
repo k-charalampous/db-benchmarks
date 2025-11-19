@@ -9,6 +9,7 @@ This benchmark:
 """
 
 import json
+import os
 import time
 from typing import Dict, List
 
@@ -112,13 +113,43 @@ class IngestionBenchmark:
         print(f"Test ingestion size: {test_data_size:,} records")
         print(f"{'=' * 80}\n")
 
+        # Clean up old test data files to ensure fresh generation
+        print("Cleaning up old test data files...")
+        file_manager = DataFileManager()
+        import glob
+        import os
+
+        cleanup_patterns = [
+            '*_ingestion_test_offset*.jsonl',
+            '*_ingestion_test_offset*.csv',
+            '*_high_freq_test_offset*.jsonl',
+            '*_high_freq_test_offset*.csv'
+        ]
+
+        files_removed = 0
+        for pattern in cleanup_patterns:
+            for file_path in glob.glob(str(file_manager.data_dir / pattern)):
+                try:
+                    os.remove(file_path)
+                    files_removed += 1
+                except Exception as e:
+                    print(f"  ⚠ Could not remove {file_path}: {e}")
+
+        if files_removed > 0:
+            print(f"  ✓ Removed {files_removed} old test data file(s)")
+        else:
+            print("  ✓ No old test data files to remove")
+
         # Generate test data for ingestion
         print("Generating test data for ingestion benchmark...")
-        file_manager = DataFileManager()
 
-        # Use very high starting IDs to avoid conflicts with existing data
-        # Start at 10 billion to ensure no overlap
-        starting_id = 10_000_000_000
+        # Use timestamp-based starting IDs to ensure absolute uniqueness across runs
+        # This guarantees no conflicts even if previous cleanup failed
+        import time
+
+        timestamp_id = int(time.time() * 1000)  # Milliseconds since epoch
+        starting_id = 10_000_000_000 + timestamp_id
+        print(f"Using starting order ID: {starting_id:,} to ensure uniqueness")
 
         file_paths = file_manager.generate_and_save(
             test_data_size, prefix="ingestion_test", starting_order_id=starting_id
@@ -213,9 +244,12 @@ class IngestionBenchmark:
         print("Generating test data pool...")
         file_manager = DataFileManager()
 
-        # Use very high starting IDs to avoid conflicts with existing data
-        # Start at 20 billion for high-frequency test
-        starting_id = 20_000_000_000
+        # Use timestamp-based starting IDs to ensure absolute uniqueness across runs
+        import time
+
+        timestamp_id = int(time.time() * 1000)  # Milliseconds since epoch
+        starting_id = 20_000_000_000 + timestamp_id
+        print(f"Using starting order ID: {starting_id:,} to ensure uniqueness")
 
         # Generate enough data for the entire test
         total_records_needed = batch_size * batches_per_second * duration_seconds
@@ -555,6 +589,15 @@ class IngestionBenchmark:
                 connection.close()
                 return
 
+            # Clean up any leftover test data from failed previous runs
+            # Test data has order IDs starting with "ORD-10" (10 billion+)
+            with connection.cursor() as cur:
+                cur.execute(f"DELETE FROM {table_name} WHERE order_id LIKE 'ORD-10%'")
+                deleted_count = cur.rowcount
+                connection.commit()
+                if deleted_count > 0:
+                    print(f"  ✓ Cleaned up {deleted_count:,} leftover test rows from previous runs")
+
             # Get initial row count
             with connection.cursor() as cur:
                 cur.execute(f"SELECT COUNT(*) FROM {table_name}")
@@ -642,6 +685,15 @@ class IngestionBenchmark:
                 print(f"  ⚠ Table {items_table} does not exist, skipping\n")
                 connection.close()
                 return
+
+            # Clean up any leftover test data from failed previous runs
+            # Test data has order IDs starting with "ORD-10" (10 billion+)
+            with connection.cursor() as cur:
+                cur.execute(f"DELETE FROM {items_table} WHERE order_id LIKE 'ORD-10%'")
+                deleted_count = cur.rowcount
+                connection.commit()
+                if deleted_count > 0:
+                    print(f"  ✓ Cleaned up {deleted_count:,} leftover test rows from previous runs")
 
             # Get initial count
             with connection.cursor() as cur:
@@ -738,6 +790,15 @@ class IngestionBenchmark:
                 connection.close()
                 return
 
+            # Clean up any leftover test data from failed previous runs
+            # Test data has order IDs starting with "ORD-10" (10 billion+)
+            with connection.cursor() as cur:
+                cur.execute(f"DELETE FROM {table_name} WHERE order_id LIKE 'ORD-10%'")
+                deleted_count = cur.rowcount
+                connection.commit()
+                if deleted_count > 0:
+                    print(f"  ✓ Cleaned up {deleted_count:,} leftover test rows from previous runs")
+
             # Get initial row count
             with connection.cursor() as cur:
                 cur.execute(f"SELECT COUNT(*) FROM {table_name}")
@@ -820,6 +881,14 @@ class IngestionBenchmark:
                 password="benchmark_pass",
                 database="benchmark_db",
             )
+
+            # Clean up any leftover test data from failed previous runs
+            # Test data has order IDs starting with "ORD-10" (10 billion+)
+            client.command(f"ALTER TABLE {table_name} DELETE WHERE order_id LIKE 'ORD-10%'")
+            # Wait for mutation to complete
+            import time as time_module
+            time_module.sleep(1)
+            print("  ✓ Cleaned up leftover test rows from previous runs")
 
             # Get initial row count
             result = client.query(f"SELECT count() FROM {table_name}")
@@ -1043,6 +1112,14 @@ class IngestionBenchmark:
                 print(f"  ⚠ Table {table_name} does not exist, skipping\n")
                 client.close()
                 return
+
+            # Clean up any leftover test data from failed previous runs
+            # Test data has order IDs starting with "ORD-10" (10 billion+)
+            client.command(f"ALTER TABLE {table_name} DELETE WHERE order_id LIKE 'ORD-10%'")
+            # Wait for mutation to complete
+            import time as time_module
+            time_module.sleep(1)
+            print("  ✓ Cleaned up leftover test rows from previous runs")
 
             # Get table columns to match DataFrame
             result = client.query(f"DESCRIBE TABLE {table_name}")
@@ -1595,6 +1672,12 @@ class IngestionBenchmark:
             client = pymongo.MongoClient(self.mongo_conn)
             db = client[self.mongo_db]
             collection = db[collection_name]
+
+            # Clean up any leftover test data from failed previous runs
+            # Test data has order IDs starting with "ORD-10" (10 billion+)
+            delete_result = collection.delete_many({"order_id": {"$regex": "^ORD-10"}})
+            if delete_result.deleted_count > 0:
+                print(f"  ✓ Cleaned up {delete_result.deleted_count:,} leftover test rows from previous runs")
 
             # Get initial count
             initial_count = collection.count_documents({})
@@ -3381,7 +3464,8 @@ class IngestionBenchmark:
         plt.tight_layout()
 
         # Save the figure
-        output_file = f"results/{test_data_size}/ingestion_benchmark_results.png"
+        os.makedirs("results/{test_data_size}", exist_ok=True)
+        output_file = f"results/{test_data_size}/ingestion_benchmark_results_bulk.png"
         plt.savefig(output_file, dpi=150, bbox_inches="tight")
         print(f"📊 Visualizations saved to: {output_file}\n")
 
@@ -3561,6 +3645,7 @@ class IngestionBenchmark:
         plt.tight_layout(rect=[0, 0, 1, 0.95])
 
         # Save the figure
+        os.makedirs("results/{bulk_test_size}", exist_ok=True)
         output_file = f"results/{bulk_test_size}/ingestion_comparison_results.png"
         plt.savefig(output_file, dpi=150, bbox_inches="tight")
         print(f"📊 Comparison visualizations saved to: {output_file}")
